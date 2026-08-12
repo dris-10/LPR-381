@@ -6,10 +6,10 @@ Console application (`solve.exe`) that solves Linear and Integer Programming mod
 
 | Role | Name | Owns |
 |---|---|---|
-| 1. Core & I/O | *(fill in)* | `Solver.Core/`, `Solver.App/` |
-| 2. Primal Simplex & Branch and Bound | *(fill in)* | 4 files in `Solver.Algorithms/` |
-| 3. Knapsack & Cutting Plane | *(fill in)* | 3 files in `Solver.Algorithms/` |
-| 4. Sensitivity Analysis | *(fill in)* | `Solver.Sensitivity/` |
+| 1. Core & I/O | Dristen Venter | `Solver.Core/`, `Solver.App/` |
+| 2. Primal Simplex & Branch and Bound | Iwan Groenewald | 4 files in `Solver.Algorithms/` |
+| 3. Knapsack & Cutting Plane | Marco Rentroia | 3 files in `Solver.Algorithms/` |
+| 4. Sensitivity Analysis | Xander | `Solver.Sensitivity/` |
 
 **Target framework:** `net10.0` — *confirm at the Day 1 meeting.* Everyone must target the same version. If any member's Visual Studio cannot select it, drop to the highest version all four can hit and update this line.
 
