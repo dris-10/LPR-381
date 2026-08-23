@@ -33,7 +33,8 @@ public sealed class IterationLog
                 Label = $"{prefix} {s.Label}",
                 Snapshot = s.Snapshot,
                 Pivot = s.Pivot,
-                Note = s.Note
+                Note = s.Note,
+                Footer = s.Footer
             });
         foreach (var n in other._notes) _notes.Add($"{prefix} {n}");
     }

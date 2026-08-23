@@ -15,6 +15,15 @@ public sealed class TableauSnapshot
     /// <summary>Free-text note, e.g. "Phase 1 complete" or "Node 3 pruned by bound".</summary>
     public string? Note { get; init; }
 
-    public static TableauSnapshot Of(string label, Tableau t, PivotOperation? pivot = null, string? note = null)
-        => new() { Label = label, Snapshot = t.Clone(), Pivot = pivot, Note = note };
+    /// <summary>
+    /// Free text printed AFTER the tableau instead of before it (Note prints before).
+    /// Branch and Bound uses this for the per-table summary the brief asks for:
+    /// the variable values, the z value, and whether the table is a candidate,
+    /// infeasible, or still needs branching.
+    /// </summary>
+    public string? Footer { get; init; }
+
+    public static TableauSnapshot Of(string label, Tableau t, PivotOperation? pivot = null,
+                                     string? note = null, string? footer = null)
+        => new() { Label = label, Snapshot = t.Clone(), Pivot = pivot, Note = note, Footer = footer };
 }

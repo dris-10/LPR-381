@@ -41,7 +41,9 @@ public static class OutputFileWriter
             sb.AppendLine(snap.Label);
             if (snap.Pivot is not null) sb.AppendLine($"  {snap.Pivot}");
             if (!string.IsNullOrWhiteSpace(snap.Note)) sb.AppendLine($"  {snap.Note}");
-            sb.AppendLine(RenderTableau(snap.Snapshot));
+            sb.Append(RenderTableau(snap.Snapshot));
+            if (!string.IsNullOrWhiteSpace(snap.Footer)) sb.Append(snap.Footer);
+            sb.AppendLine();
         }
 
         if (result.Log.Notes.Count > 0)
