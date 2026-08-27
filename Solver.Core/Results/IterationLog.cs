@@ -16,8 +16,8 @@ public sealed class IterationLog
     public IReadOnlyList<string> Notes => _notes;
     public int Count => _snapshots.Count;
 
-    public void Add(string label, Tableau tableau, PivotOperation? pivot = null, string? note = null)
-        => _snapshots.Add(TableauSnapshot.Of(label, tableau, pivot, note));
+    public void Add(string label, Tableau tableau, PivotOperation? pivot = null, string? note = null, string? footer = null)
+        => _snapshots.Add(TableauSnapshot.Of(label, tableau, pivot, note, footer));
 
     public void Add(TableauSnapshot snapshot) => _snapshots.Add(snapshot);
 

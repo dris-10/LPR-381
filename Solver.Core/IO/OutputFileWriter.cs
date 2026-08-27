@@ -17,6 +17,9 @@ public static class OutputFileWriter
 {
     private const int ColumnWidth = 9;
 
+    /// <summary>Width of the separator drawn under a node's footer (independent of that table's own width).</summary>
+    private const int FooterSeparatorWidth = 58;
+
     public static void Write(string path, LPModel model, SolutionResult result)
         => File.WriteAllText(path, Render(model, result));
 
@@ -41,7 +44,16 @@ public static class OutputFileWriter
             sb.AppendLine(snap.Label);
             if (snap.Pivot is not null) sb.AppendLine($"  {snap.Pivot}");
             if (!string.IsNullOrWhiteSpace(snap.Note)) sb.AppendLine($"  {snap.Note}");
-            sb.AppendLine(RenderTableau(snap.Snapshot));
+            sb.Append(RenderTableau(snap.Snapshot));
+
+            if (!string.IsNullOrWhiteSpace(snap.Footer))
+            {
+                sb.AppendLine(new string('-', FooterSeparatorWidth));
+                foreach (var line in snap.Footer.Split('\n'))
+                    sb.AppendLine($"  {line}");
+            }
+
+            sb.AppendLine();
         }
 
         if (result.Log.Notes.Count > 0)
@@ -58,9 +70,9 @@ public static class OutputFileWriter
         if (!string.IsNullOrWhiteSpace(result.Message)) sb.AppendLine($"Message: {result.Message}");
         if (result.IsOptimal)
         {
-            sb.AppendLine($"z      = {Math.Round(result.ObjectiveValue, 3):0.###}");
+            sb.AppendLine($"z      = {RoundClean(result.ObjectiveValue):0.###}");
             for (int i = 0; i < result.VariableValues.Length; i++)
-                sb.AppendLine($"{model.VariableNames.ElementAtOrDefault(i) ?? $"x{i + 1}",-6} = {Math.Round(result.VariableValues[i], 3):0.###}");
+                sb.AppendLine($"{model.VariableNames.ElementAtOrDefault(i) ?? $"x{i + 1}",-6} = {RoundClean(result.VariableValues[i]):0.###}");
         }
 
         return sb.ToString();
@@ -81,14 +93,17 @@ public static class OutputFileWriter
             string label = r == 0 ? "z" : t.ColumnNames[t.Basis[r - 1]];
             sb.Append(label.PadRight(7));
             for (int c = 0; c < t.TotalColumns; c++)
-            {
-                double v = Math.Round(t[r, c], 3);
-                if (Math.Abs(v) < 1e-9) v = 0;          // kill "-0"
-                sb.Append(v.ToString("0.###").PadLeft(ColumnWidth));
-            }
+                sb.Append(RoundClean(t[r, c]).ToString("0.###").PadLeft(ColumnWidth));
             sb.AppendLine();
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>Rounds to 3 decimals and kills "-0" so it never leaks into the output.</summary>
+    private static double RoundClean(double v)
+    {
+        double r = Math.Round(v, 3);
+        return Math.Abs(r) < 1e-9 ? 0 : r;
     }
 }

@@ -32,10 +32,13 @@ public sealed class BranchNode
 
     public List<BranchNode> Children { get; } = new();
 
-    /// <summary>Creates the root node from the original model.</summary>
+    /// <summary>
+    /// Creates the root node from the original model. Labelled "1" so the driver's
+    /// dotted child labels read "1.1", "1.2", "1.1.1" ... with the root itself as "Table 1".
+    /// </summary>
     public static BranchNode Root(LPModel model) => new()
     {
-        Label = "0",
+        Label = "1",
         Model = model.Clone(),
         BranchDescription = "root"
     };
@@ -55,7 +58,7 @@ public sealed class BranchNode
 
         var child = new BranchNode
         {
-            Label = Label == "0" ? childNumber.ToString() : $"{Label}.{childNumber}",
+            Label = $"{Label}.{childNumber}",
             Model = Model.WithExtraConstraint(
                 Model.UnitRow(variableIndex), relation, bound, description),
             Parent = this,

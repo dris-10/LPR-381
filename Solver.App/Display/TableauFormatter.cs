@@ -19,6 +19,10 @@ public static class TableauFormatter
             if (snap.Pivot is not null) Console.WriteLine($"  {snap.Pivot}");
             if (!string.IsNullOrWhiteSpace(snap.Note)) Console.WriteLine($"  {snap.Note}");
             Print(snap.Snapshot);
+
+            if (!string.IsNullOrWhiteSpace(snap.Footer))
+                foreach (var line in snap.Footer.Split('\n'))
+                    Console.WriteLine($"  {line}");
         }
 
         foreach (var note in result.Log.Notes) Console.WriteLine($"  {note}");
