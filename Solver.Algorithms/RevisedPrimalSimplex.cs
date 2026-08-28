@@ -52,6 +52,7 @@ public sealed class RevisedPrimalSimplex : ISolver
         }
         catch (NotSupportedException ex)
         {
+            log.Note(ex.Message, SnapshotHighlight.DeadEnd);
             return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, ex.Message, log);
         }
 
@@ -79,7 +80,8 @@ public sealed class RevisedPrimalSimplex : ISolver
         var binv = Identity(m);
 
         log.Add("Canonical Form", seed,
-            note: "B is the starting identity basis, so B^-1 starts as the identity matrix.");
+            note: "B is the starting identity basis, so B^-1 starts as the identity matrix.",
+            highlight: SnapshotHighlight.InProgress);
 
         // ---------------------------------------------------------------
         // Local helpers - all close over basis / binv, which mutate as we pivot.
@@ -237,7 +239,7 @@ public sealed class RevisedPrimalSimplex : ISolver
                 basis[leaveRow] = enter;
 
                 var display = BuildDisplay(cVec, ComputeY(cVec), ComputeXB());
-                log.Add($"{phaseLabel} - Iteration {iter}", display, pivot, note);
+                log.Add($"{phaseLabel} - Iteration {iter}", display, pivot, note, highlight: SnapshotHighlight.InProgress);
             }
             return SolutionStatus.IterationLimit;
         }
@@ -280,15 +282,22 @@ public sealed class RevisedPrimalSimplex : ISolver
 
             var initDisplay = BuildDisplay(cPhase1, ComputeY(cPhase1), ComputeXB());
             log.Add("Phase 1 - Initial", initDisplay,
-                note: "Cost vector swapped for -1 on every artificial; B^-1 is untouched.");
+                note: "Cost vector swapped for -1 on every artificial; B^-1 is untouched.",
+                highlight: SnapshotHighlight.InProgress);
 
             var status1 = RunPhase(cPhase1, Array.Empty<int>(), "Phase 1");
             if (status1 == SolutionStatus.Unbounded)
-                return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName,
-                    "Phase 1 is unbounded, which should not happen for a feasibility LP - check the model.", log);
+            {
+                const string message = "Phase 1 is unbounded, which should not happen for a feasibility LP - check the model.";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName, message, log);
+            }
             if (status1 == SolutionStatus.IterationLimit)
-                return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName,
-                    $"Stopped after {MaxIterations} iterations (possible cycling).", log);
+            {
+                string message = $"Stopped after {MaxIterations} iterations (possible cycling).";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, message, log);
+            }
 
             double phase1Obj = 0;
             var xbAfter = ComputeXB();
@@ -297,31 +306,40 @@ public sealed class RevisedPrimalSimplex : ISolver
             if (Math.Abs(phase1Obj) > 1e-7)
             {
                 double artificialSum = -phase1Obj;
-                return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName,
-                    $"Phase 1 ended with an artificial sum of {Fmt(artificialSum)}. No feasible solution exists.", log);
+                string message = $"Phase 1 ended with an artificial sum of {Fmt(artificialSum)}. No feasible solution exists.";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, message, log);
             }
 
             DriveOutArtificials();
 
             var phase2Init = BuildDisplay(cMax, ComputeY(cMax), ComputeXB());
             log.Add("Phase 2 - Initial", phase2Init,
-                note: "Original cost vector restored. Revised simplex re-prices from B^-1, so there is no objective row to patch up.");
+                note: "Original cost vector restored. Revised simplex re-prices from B^-1, so there is no objective row to patch up.",
+                highlight: SnapshotHighlight.InProgress);
         }
 
         // ---------------- Phase 2 ----------------
         var status2 = RunPhase(cMax, artificialColumns, "Phase 2");
 
         if (status2 == SolutionStatus.Unbounded)
-            return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName,
-                "The entering column has no positive entry in B^-1.A_enter - the objective is unbounded.", log);
+        {
+            const string message = "The entering column has no positive entry in B^-1.A_enter - the objective is unbounded.";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName, message, log);
+        }
 
         if (status2 == SolutionStatus.IterationLimit)
-            return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName,
-                $"Stopped after {MaxIterations} iterations (possible cycling).", log);
+        {
+            string message = $"Stopped after {MaxIterations} iterations (possible cycling).";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, message, log);
+        }
 
         var finalTableau = BuildDisplay(cMax, ComputeY(cMax), ComputeXB());
         log.Add("Optimal Tableau", finalTableau,
-            note: "No z_j - c_j is negative, so no column can improve the objective.");
+            note: "No z_j - c_j is negative, so no column can improve the objective.",
+            highlight: SnapshotHighlight.Best);
 
         return new SolutionResult
         {

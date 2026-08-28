@@ -41,46 +41,62 @@ public sealed class PrimalSimplex : ISolver
         }
         catch (NotSupportedException ex)
         {
+            log.Note(ex.Message, SnapshotHighlight.DeadEnd);
             return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, ex.Message, log);
         }
 
         var t = canonical.Tableau;
-        log.Add("Canonical Form", t);
+        log.Add("Canonical Form", t, highlight: SnapshotHighlight.InProgress);
 
         // ---------------- Phase 1 ----------------
         if (canonical.NeedsPhaseOne)
         {
             var phaseTwoObjective = SaveObjectiveRow(t);
             BuildPhaseOneObjective(t);
-            log.Add("Phase 1 - Initial", t, note: "Minimising the sum of artificial variables.");
+            log.Add("Phase 1 - Initial", t, note: "Minimising the sum of artificial variables.",
+                highlight: SnapshotHighlight.InProgress);
 
             var phase1 = Iterate(t, log, "Phase 1", forbidden: Array.Empty<int>());
             if (phase1 != SolutionStatus.Optimal)
+            {
+                log.Note("Phase 1 did not terminate normally.", SnapshotHighlight.DeadEnd);
                 return SolutionResult.Failure(phase1, AlgorithmName,
                     "Phase 1 did not terminate normally.", log);
+            }
 
             if (Math.Abs(t.ObjectiveValue) > 1e-7)
-                return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName,
-                    $"Phase 1 ended with an artificial sum of {Math.Round(-t.ObjectiveValue, 3):0.###}. " +
-                    "No feasible solution exists.", log);
+            {
+                string message = $"Phase 1 ended with an artificial sum of {Math.Round(-t.ObjectiveValue, 3):0.###}. " +
+                    "No feasible solution exists.";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, message, log);
+            }
 
             DriveOutArtificials(t, log);
             RestoreObjectiveRow(t, phaseTwoObjective);
-            log.Add("Phase 2 - Initial", t, note: "Original objective restored and priced out against the basis.");
+            log.Add("Phase 2 - Initial", t, note: "Original objective restored and priced out against the basis.",
+                highlight: SnapshotHighlight.InProgress);
         }
 
         // ---------------- Phase 2 ----------------
         var status = Iterate(t, log, "Phase 2", forbidden: t.ArtificialColumns);
 
         if (status == SolutionStatus.Unbounded)
-            return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName,
-                "The entering column has no positive entry - the objective is unbounded.", log);
+        {
+            const string message = "The entering column has no positive entry - the objective is unbounded.";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.Unbounded, AlgorithmName, message, log);
+        }
 
         if (status == SolutionStatus.IterationLimit)
-            return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName,
-                $"Stopped after {MaxIterations} iterations (possible cycling).", log);
+        {
+            string message = $"Stopped after {MaxIterations} iterations (possible cycling).";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, message, log);
+        }
 
-        log.Add("Optimal Tableau", t, note: "No negative entries remain in the z-row.");
+        log.Add("Optimal Tableau", t, note: "No negative entries remain in the z-row.",
+            highlight: SnapshotHighlight.Best);
 
         return new SolutionResult
         {
@@ -120,7 +136,7 @@ public sealed class PrimalSimplex : ISolver
             };
 
             t.Pivot(leave, enter);
-            log.Add($"{phase} - Iteration {iteration}", t, pivot);
+            log.Add($"{phase} - Iteration {iteration}", t, pivot, highlight: SnapshotHighlight.InProgress);
         }
 
         return SolutionStatus.IterationLimit;

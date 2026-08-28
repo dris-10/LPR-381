@@ -66,11 +66,13 @@ public sealed class BranchAndBoundSimplex : ISolver
 
             string description = node.Parent is null ? "root LP relaxation" : Describe(node);
             string? footer = null;
+            SnapshotHighlight highlight;
 
             if (!result.IsOptimal)
             {
                 node.Outcome = $"{result.Status} - branch discarded";
                 log.Note($"Table {node.Label}: {result.Status} - this branch is discarded.");
+                highlight = SnapshotHighlight.DeadEnd;
             }
             else
             {
@@ -90,12 +92,14 @@ public sealed class BranchAndBoundSimplex : ISolver
                         node.Outcome = $"Candidate {candidateCount} - best so far";
                         footer = $"{varsLine}\nz value     = {Fmt(z)}\n" +
                                  $"This table is: Candidate {candidateCount} - best so far, z = {Fmt(z)}.";
+                        highlight = SnapshotHighlight.Best;
                     }
                     else
                     {
                         node.Outcome = $"Candidate {candidateCount} - discarded";
                         footer = $"{varsLine}\nz value     = {Fmt(z)}\n" +
                                  $"This table is: Candidate {candidateCount} - z = {Fmt(z)} does not beat the incumbent z = {Fmt(incumbent!.ObjectiveValue)}, so it is discarded.";
+                        highlight = SnapshotHighlight.Candidate;
                     }
                 }
                 else if (incumbent is not null && !Improves(model, z, incumbent.ObjectiveValue))
@@ -104,6 +108,7 @@ public sealed class BranchAndBoundSimplex : ISolver
                     node.Outcome = "pruned by bound";
                     footer = $"{varsLine}\nz value     = {Fmt(z)}\n" +
                              $"This table is: z = {Fmt(z)} cannot beat the incumbent z = {Fmt(incumbent.ObjectiveValue)}, so this branch is pruned.";
+                    highlight = SnapshotHighlight.DeadEnd;
                 }
                 else
                 {
@@ -115,6 +120,7 @@ public sealed class BranchAndBoundSimplex : ISolver
                     node.Outcome = "branched";
                     footer = $"{varsLine}\nz value     = {Fmt(z)}\n" +
                              $"This table is: branching {varName} further ({varName} <= {Fmt(floor)} first, then {varName} >= {Fmt(ceil)})";
+                    highlight = SnapshotHighlight.InProgress;
 
                     // Push ceiling then floor so the floor branch is explored first (depth-first).
                     var ceilChild = node.Branch(fractional, RelationType.GreaterEqual, ceil, 2);
@@ -124,15 +130,16 @@ public sealed class BranchAndBoundSimplex : ISolver
                 }
             }
 
-            AppendNodeLog(log, node, result, description, footer);
+            AppendNodeLog(log, node, result, description, footer, highlight);
         }
 
         log.Note($"Explored {exploredCount} table(s) and found {candidateCount} candidate(s).");
 
         if (incumbent is null || incumbentNode is null)
         {
-            return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName,
-                "No integer-feasible solution was found in the branch and bound tree.", log);
+            const string message = "No integer-feasible solution was found in the branch and bound tree.";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, message, log);
         }
 
         string bestDescription = Describe(incumbentNode);
@@ -190,7 +197,8 @@ public sealed class BranchAndBoundSimplex : ISolver
     /// re-labelled "Table {label} - {original label}", and the footer (if any) is attached to
     /// the last snapshot so it prints directly under that node's closing tableau.
     /// </summary>
-    private static void AppendNodeLog(IterationLog log, BranchNode node, SolutionResult result, string description, string? footer)
+    private static void AppendNodeLog(IterationLog log, BranchNode node, SolutionResult result, string description,
+                                      string? footer, SnapshotHighlight highlight)
     {
         var snapshots = result.Log.Snapshots;
         for (int i = 0; i < snapshots.Count; i++)
@@ -207,7 +215,12 @@ public sealed class BranchAndBoundSimplex : ISolver
                 Snapshot = s.Snapshot,
                 Pivot = s.Pivot,
                 Note = s.Note,
-                Footer = isLast ? footer : null
+                Footer = isLast ? footer : null,
+                // The sub-solve's own snapshots are colored from the LP relaxation's point of view
+                // (its "Optimal Tableau" would show green). Overriding the closing snapshot here
+                // reflects what that optimum means for the B&B tree as a whole - e.g. fractional-but-
+                // optimal is still "not yet complete" (yellow) at this level, not "done" (green).
+                Highlight = isLast ? highlight : s.Highlight
             });
         }
 
