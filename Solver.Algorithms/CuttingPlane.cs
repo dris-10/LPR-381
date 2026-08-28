@@ -94,14 +94,32 @@ public sealed class CuttingPlane : ISolver
             }
             catch (Exception ex)
             {
+                string exMessage = $"Failed to solve LP relaxation: {ex.Message}";
+                log.Note(exMessage, SnapshotHighlight.DeadEnd);
                 return SolutionResult.Failure(
                     SolutionStatus.Infeasible,
                     AlgorithmName,
-                    $"Failed to solve LP relaxation: {ex.Message}",
+                    exMessage,
                     log);
             }
 
             lastResult = relaxation;
+
+            // --------------------------------------------------------
+            // Check whether the LP solution is already integer, BEFORE
+            // logging, so the closing snapshot can be colored: green if
+            // this is the final answer, yellow if more cuts are coming.
+            // --------------------------------------------------------
+
+            int fractionalVariable = relaxation.IsOptimal
+                ? FindFractionalIntegerVariable(workingModel, relaxation.VariableValues)
+                : -1;
+
+            SnapshotHighlight relaxationHighlight = !relaxation.IsOptimal
+                ? SnapshotHighlight.DeadEnd
+                : fractionalVariable < 0
+                    ? SnapshotHighlight.Best
+                    : SnapshotHighlight.InProgress;
 
             // --------------------------------------------------------
             // Copy the revised simplex iterations into this algorithm's
@@ -112,32 +130,27 @@ public sealed class CuttingPlane : ISolver
             AppendRelaxationLog(
                 log,
                 relaxation,
-                cutNumber);
+                cutNumber,
+                relaxationHighlight);
 
             if (!relaxation.IsOptimal)
             {
+                string message = $"LP relaxation became {relaxation.Status} after " +
+                    $"{cutNumber} cutting-plane iteration(s).";
+                log.Note(message, SnapshotHighlight.DeadEnd);
                 return SolutionResult.Failure(
                     relaxation.Status,
                     AlgorithmName,
-                    $"LP relaxation became {relaxation.Status} after " +
-                    $"{cutNumber} cutting-plane iteration(s).",
+                    message,
                     log);
             }
-
-            // --------------------------------------------------------
-            // Check whether the LP solution is already integer.
-            // --------------------------------------------------------
-
-            int fractionalVariable =
-                FindFractionalIntegerVariable(
-                    workingModel,
-                    relaxation.VariableValues);
 
             if (fractionalVariable < 0)
             {
                 log.Note(
                     $"Cutting Plane finished: all integer variables are integral " +
-                    $"after {cutNumber} cut(s).");
+                    $"after {cutNumber} cut(s).",
+                    SnapshotHighlight.Best);
 
                 return new SolutionResult
                 {
@@ -173,11 +186,9 @@ public sealed class CuttingPlane : ISolver
 
             if (tableau == null)
             {
-                return SolutionResult.Failure(
-                    SolutionStatus.Infeasible,
-                    AlgorithmName,
-                    "The LP relaxation did not provide a final tableau.",
-                    log);
+                const string message = "The LP relaxation did not provide a final tableau.";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, message, log);
             }
 
             int tableauRow =
@@ -195,12 +206,10 @@ public sealed class CuttingPlane : ISolver
 
                 if (alternate < 0)
                 {
-                    return SolutionResult.Failure(
-                        SolutionStatus.IterationLimit,
-                        AlgorithmName,
-                        "A fractional solution exists, but no fractional " +
-                        "basic integer variable could be found for a Gomory cut.",
-                        log);
+                    const string message = "A fractional solution exists, but no fractional " +
+                        "basic integer variable could be found for a Gomory cut.";
+                    log.Note(message, SnapshotHighlight.DeadEnd);
+                    return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, message, log);
                 }
 
                 fractionalVariable = alternate;
@@ -233,11 +242,9 @@ public sealed class CuttingPlane : ISolver
             }
             catch (Exception ex)
             {
-                return SolutionResult.Failure(
-                    SolutionStatus.IterationLimit,
-                    AlgorithmName,
-                    $"Could not construct a Gomory cut: {ex.Message}",
-                    log);
+                string message = $"Could not construct a Gomory cut: {ex.Message}";
+                log.Note(message, SnapshotHighlight.DeadEnd);
+                return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, message, log);
             }
 
             string cutName = $"GomoryCut{cutNumber + 1}";
@@ -267,12 +274,10 @@ public sealed class CuttingPlane : ISolver
                 $"{cutName} added. Re-solving the strengthened LP relaxation.");
         }
 
-        return SolutionResult.Failure(
-            SolutionStatus.IterationLimit,
-            AlgorithmName,
-            $"Cutting Plane reached the maximum of {MaxCuts} cuts " +
-            "without obtaining an integer solution.",
-            log);
+        string cappedMessage = $"Cutting Plane reached the maximum of {MaxCuts} cuts " +
+            "without obtaining an integer solution.";
+        log.Note(cappedMessage, SnapshotHighlight.DeadEnd);
+        return SolutionResult.Failure(SolutionStatus.IterationLimit, AlgorithmName, cappedMessage, log);
     }
 
     // ================================================================
@@ -430,13 +435,19 @@ public sealed class CuttingPlane : ISolver
     private static void AppendRelaxationLog(
         IterationLog destination,
         SolutionResult relaxation,
-        int cutNumber)
+        int cutNumber,
+        SnapshotHighlight closingHighlight)
     {
         if (relaxation.Log == null)
             return;
 
-        foreach (var snapshot in relaxation.Log.Snapshots)
+        var snapshots = relaxation.Log.Snapshots;
+
+        for (int i = 0; i < snapshots.Count; i++)
         {
+            var snapshot = snapshots[i];
+            bool isLast = i == snapshots.Count - 1;
+
             destination.Add(
                 new TableauSnapshot
                 {
@@ -449,14 +460,20 @@ public sealed class CuttingPlane : ISolver
 
                     Note = snapshot.Note,
 
-                    Footer = snapshot.Footer
+                    Footer = snapshot.Footer,
+
+                    // The relaxation's own "Optimal Tableau" would show green in isolation.
+                    // Overridden here to reflect what that optimum means for Cutting Plane as a
+                    // whole: still fractional (another cut is coming) is yellow, not green.
+                    Highlight = isLast ? closingHighlight : snapshot.Highlight
                 });
         }
 
         foreach (var note in relaxation.Log.Notes)
         {
-            destination.Note(
-                $"Cut {cutNumber}: {note}");
+            string text = $"Cut {cutNumber}: {note.Text}";
+            if (note.Highlight is { } highlight) destination.Note(text, highlight);
+            else destination.Note(text);
         }
     }
 

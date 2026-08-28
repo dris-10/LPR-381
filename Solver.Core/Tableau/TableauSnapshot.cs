@@ -22,6 +22,10 @@ public sealed class TableauSnapshot
     /// </summary>
     public string? Footer { get; init; }
 
-    public static TableauSnapshot Of(string label, Tableau t, PivotOperation? pivot = null, string? note = null, string? footer = null)
-        => new() { Label = label, Snapshot = t.Clone(), Pivot = pivot, Note = note, Footer = footer };
+    /// <summary>Console-only color hint (see <see cref="SnapshotHighlight"/>). Null prints uncolored.</summary>
+    public SnapshotHighlight? Highlight { get; init; }
+
+    public static TableauSnapshot Of(string label, Tableau t, PivotOperation? pivot = null, string? note = null,
+                                     string? footer = null, SnapshotHighlight? highlight = null)
+        => new() { Label = label, Snapshot = t.Clone(), Pivot = pivot, Note = note, Footer = footer, Highlight = highlight };
 }

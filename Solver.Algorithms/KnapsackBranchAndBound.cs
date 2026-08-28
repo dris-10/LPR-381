@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Solver.Core;
 using Solver.Core.Interfaces;
 using Solver.Core.Models;
 using Solver.Core.Results;
@@ -160,7 +161,8 @@ public sealed class KnapsackBranchAndBound : ISolver
                 log.Note(
                     $"{nodeLabel} fathomed: infeasible because " +
                     $"weight {Fmt(node.CurrentWeight)} exceeds " +
-                    $"capacity {Fmt(capacity)}.");
+                    $"capacity {Fmt(capacity)}.",
+                    SnapshotHighlight.DeadEnd);
 
                 continue;
             }
@@ -190,7 +192,8 @@ public sealed class KnapsackBranchAndBound : ISolver
                 log.Note(
                     $"{nodeLabel} fathomed by bound: " +
                     $"upper bound {Fmt(bound)} cannot beat " +
-                    $"best candidate {Fmt(bestValue)}.");
+                    $"best candidate {Fmt(bestValue)}.",
+                    SnapshotHighlight.DeadEnd);
 
                 continue;
             }
@@ -222,21 +225,25 @@ public sealed class KnapsackBranchAndBound : ISolver
 
                     log.Note(
                         $"{nodeLabel}: Candidate {candidateCount} " +
-                        $"is the new BEST candidate.");
+                        $"is the new BEST candidate.",
+                        SnapshotHighlight.Best);
 
                     log.Note(
                         $"Candidate solution: " +
-                        FormatSolution(model, bestSolution));
+                        FormatSolution(model, bestSolution),
+                        SnapshotHighlight.Best);
 
                     log.Note(
-                        $"Objective value z = {Fmt(bestValue)}.");
+                        $"Objective value z = {Fmt(bestValue)}.",
+                        SnapshotHighlight.Best);
                 }
                 else
                 {
                     log.Note(
                         $"{nodeLabel}: Candidate {candidateCount} " +
                         $"discarded because z = {Fmt(node.CurrentValue)} " +
-                        $"does not beat incumbent z = {Fmt(bestValue)}.");
+                        $"does not beat incumbent z = {Fmt(bestValue)}.",
+                        SnapshotHighlight.Candidate);
                 }
 
                 continue;
@@ -252,7 +259,8 @@ public sealed class KnapsackBranchAndBound : ISolver
                 GetVariableName(model, item.OriginalIndex);
 
             log.Note(
-                $"{nodeLabel}: branching on {variableName}.");
+                $"{nodeLabel}: branching on {variableName}.",
+                SnapshotHighlight.InProgress);
 
             // --------------------------------------------------------
             // Child 1: Exclude the item.
@@ -326,21 +334,22 @@ public sealed class KnapsackBranchAndBound : ISolver
 
         if (!hasBestSolution)
         {
-            return SolutionResult.Failure(
-                SolutionStatus.Infeasible,
-                AlgorithmName,
-                "No feasible binary knapsack solution was found.",
-                log);
+            const string message = "No feasible binary knapsack solution was found.";
+            log.Note(message, SnapshotHighlight.DeadEnd);
+            return SolutionResult.Failure(SolutionStatus.Infeasible, AlgorithmName, message, log);
         }
 
         log.Note(
-            $"BEST CANDIDATE:");
+            $"BEST CANDIDATE:",
+            SnapshotHighlight.Best);
 
         log.Note(
-            FormatSolution(model, bestSolution));
+            FormatSolution(model, bestSolution),
+            SnapshotHighlight.Best);
 
         log.Note(
-            $"Best objective value z = {Fmt(bestValue)}.");
+            $"Best objective value z = {Fmt(bestValue)}.",
+            SnapshotHighlight.Best);
 
         return new SolutionResult
         {
