@@ -338,22 +338,34 @@ public sealed class CuttingPlane : ISolver
     // ================================================================
 
     /// <summary>
-    /// Creates a Gomory fractional cut from a fractional basic row.
+    /// Creates a Gomory fractional cut from a fractional basic row, expressed purely in terms
+    /// of the original decision variables.
     ///
-    /// The tableau row has the form:
+    /// The raw cut lives in the CURRENT tableau's column space - original variables AND that
+    /// iteration's slack/surplus/artificial columns:
     ///
-    ///       x_B + a1*x1 + a2*x2 + ... = b
+    ///       sum frac(a_rj) * (every column j) >= frac(b_r)
     ///
-    /// For a fractional RHS:
+    /// Most of the actual fractional content usually sits on the slack/surplus columns, not
+    /// the original variables: whenever both original variables of a row are already basic at
+    /// the fractional vertex (the ordinary case for a small LP), their own row coefficients are
+    /// exactly 0 or 1 by construction of Gauss-Jordan elimination - integers, so Fraction() of
+    /// them is always 0. Dropping the slack/surplus columns therefore throws away the cut
+    /// entirely on exactly the models this algorithm is meant to solve.
     ///
-    ///       sum frac(ai) * xi >= frac(b)
+    /// Each slack/surplus column is substituted back into original-variable terms using its own
+    /// defining row equation - an EXACT linear identity, applied AFTER Fraction() is taken, so
+    /// the substitution itself introduces no rounding error:
     ///
-    /// is the Gomory fractional cut.
+    ///   &lt;= row i, slack s_i    (coefficient +1 in its own row):  s_i = rhs_i - A_i.x
+    ///   &gt;= row i, surplus e_i  (coefficient -1 in its own row):  e_i = A_i.x - rhs_i
     ///
-    /// Only original decision-variable columns are retained here.
-    /// This is appropriate for the pure-integer models used by the
-    /// assignment, where the original variables are the integer
-    /// variables and the generated slack variables are auxiliary.
+    /// Artificial columns are dropped rather than substituted: an artificial is 0 throughout the
+    /// real feasible region (it isn't a real problem variable, just Phase 1 bookkeeping), so a
+    /// term frac(a_rk) * (artificial) contributes exactly 0 to any cut over the real variables.
+    ///
+    /// ExpandRows mirrors CanonicalFormBuilder's row list (implicit bin upper bounds, negative-
+    /// RHS flip) so this substitution's row-to-column mapping lines up with the tableau's.
     /// </summary>
     private static Constraint BuildGomoryCut(
         LPModel model,
@@ -361,9 +373,7 @@ public sealed class CuttingPlane : ISolver
         int row)
     {
         double rhs = tableau.Rhs(row);
-
-        double fractionalRhs =
-            Fraction(rhs);
+        double fractionalRhs = Fraction(rhs);
 
         if (fractionalRhs <= IntegerEps)
         {
@@ -371,17 +381,46 @@ public sealed class CuttingPlane : ISolver
                 "Selected tableau row does not have a sufficiently fractional RHS.");
         }
 
-        var coefficients =
-            new double[model.VariableCount];
-
+        var coefficients = new double[model.VariableCount];
         for (int j = 0; j < model.VariableCount; j++)
+            coefficients[j] = Fraction(tableau[row, j]);
+
+        double cutRhs = fractionalRhs;
+
+        // Substitute each row's slack/surplus column back into original-variable terms, the
+        // same order CanonicalFormBuilder assigned them in: one primary column per row, plus a
+        // trailing artificial for >= and = rows.
+        void Substitute(int column, double sign, double[] rowCoefficients, double rowRhs)
         {
-            double coefficient = tableau[row, j];
+            double frac = Fraction(tableau[row, column]);
+            if (Math.Abs(frac) < IntegerEps) return;
 
-            double fractionalCoefficient =
-                Fraction(coefficient);
+            for (int j = 0; j < model.VariableCount; j++)
+                coefficients[j] -= frac * sign * rowCoefficients[j];
 
-            coefficients[j] = fractionalCoefficient;
+            cutRhs -= frac * sign * rowRhs;
+        }
+
+        int col = model.VariableCount;
+        foreach (var c in ExpandRows(model))
+        {
+            switch (c.Relation)
+            {
+                case RelationType.LessEqual:
+                    Substitute(col, sign: 1.0, c.Coefficients, c.Rhs);
+                    col++;
+                    break;
+
+                case RelationType.GreaterEqual:
+                    Substitute(col, sign: -1.0, c.Coefficients, c.Rhs); // surplus
+                    col++;
+                    col++; // artificial: dropped, not substituted (see summary above)
+                    break;
+
+                default: // Equal
+                    col++; // artificial only: dropped
+                    break;
+            }
         }
 
         // Remove numerical noise.
@@ -390,6 +429,7 @@ public sealed class CuttingPlane : ISolver
             if (Math.Abs(coefficients[j]) < IntegerEps)
                 coefficients[j] = 0;
         }
+        if (Math.Abs(cutRhs) < IntegerEps) cutRhs = 0;
 
         if (coefficients.All(x => Math.Abs(x) < IntegerEps))
         {
@@ -401,9 +441,47 @@ public sealed class CuttingPlane : ISolver
         {
             Coefficients = coefficients,
             Relation = RelationType.GreaterEqual,
-            Rhs = fractionalRhs,
+            Rhs = cutRhs,
             Name = "GomoryCut"
         };
+    }
+
+    /// <summary>
+    /// Mirrors CanonicalFormBuilder's row list exactly (frozen contract, see
+    /// Solver.Core/IO/CanonicalFormBuilder.cs): the original constraints, with an implicit
+    /// x_i &lt;= 1 row appended per binary variable, and any negative-RHS row flipped. Needed here
+    /// so BuildGomoryCut's column-to-row mapping lines up with the tableau CanonicalFormBuilder
+    /// actually produced for this model.
+    /// </summary>
+    private static List<Constraint> ExpandRows(LPModel model)
+    {
+        var rows = model.Constraints.Select(c => c.Clone()).ToList();
+
+        for (int j = 0; j < model.VariableCount; j++)
+        {
+            if (model.SignRestrictions[j] != SignRestriction.Bin) continue;
+            var unit = new double[model.VariableCount];
+            unit[j] = 1.0;
+            rows.Add(new Constraint { Coefficients = unit, Relation = RelationType.LessEqual, Rhs = 1.0 });
+        }
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].Rhs >= 0) continue;
+            rows[i] = new Constraint
+            {
+                Coefficients = rows[i].Coefficients.Select(v => -v).ToArray(),
+                Relation = rows[i].Relation switch
+                {
+                    RelationType.LessEqual => RelationType.GreaterEqual,
+                    RelationType.GreaterEqual => RelationType.LessEqual,
+                    _ => RelationType.Equal
+                },
+                Rhs = -rows[i].Rhs
+            };
+        }
+
+        return rows;
     }
 
     /// <summary>
